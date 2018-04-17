@@ -23,6 +23,7 @@ package dyff
 import (
 	"bytes"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"reflect"
@@ -45,6 +46,9 @@ var DoNotInspectCerts = false
 // UseGoPatchPaths style paths instead of Spruce Dot-Style
 var UseGoPatchPaths = false
 
+// DoNotInspectStringsForJSON enables or disables string inspection whether it would be valid JSON to be displayed in an unfolded style
+var DoNotInspectStringsForJSON = false
+
 func pathToString(path Path) string {
 	if UseGoPatchPaths {
 		return ToGoPatchStyle(path)
@@ -53,7 +57,40 @@ func pathToString(path Path) string {
 	return ToDotStyle(path)
 }
 
+func unfoldJSONInStrings(obj interface{}) interface{} {
+	switch obj.(type) {
+	case yaml.MapSlice:
+		result := yaml.MapSlice{}
+		for _, mapitem := range obj.(yaml.MapSlice) {
+			result = append(result, yaml.MapItem{Key: mapitem.Key, Value: unfoldJSONInStrings(mapitem.Value)})
+		}
+		return result
+
+	case []interface{}:
+		list := obj.([]interface{})
+		for i := range list {
+			list[i] = unfoldJSONInStrings(list[i])
+		}
+		return list
+
+	case string:
+		var list []interface{}
+		if err := json.Unmarshal([]byte(obj.(string)), &list); err == nil {
+			return list
+		}
+
+		return obj
+
+	default:
+		return obj
+	}
+}
+
 func yamlString(input interface{}) string {
+	if !DoNotInspectStringsForJSON {
+		input = unfoldJSONInStrings(input)
+	}
+
 	output, err := yaml.Marshal(input)
 	if err != nil {
 		ExitWithError("Failed to marshal input object", err)
